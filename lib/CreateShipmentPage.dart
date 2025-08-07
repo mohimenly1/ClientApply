@@ -52,7 +52,7 @@ class _CreateShipmentPageState extends State<CreateShipmentPage> {
     }
   }
 
-  Future<void> submitShipment() async {
+  Future<void> submitShipment(String paymentMethod) async {
     if (!_formKey.currentState!.validate() || selectedCity == null) {
       _showErrorSnackbar('يرجى ملء جميع الحقول المطلوبة');
       return;
@@ -77,9 +77,28 @@ class _CreateShipmentPageState extends State<CreateShipmentPage> {
       );
 
       if (response.statusCode == 200 || response.statusCode == 201) {
-        _showSuccessSnackbar('تم إنشاء الشحنة بنجاح!');
-        _formKey.currentState!.reset();
-        setState(() => selectedCity = null);
+        final shipmentData = json.decode(response.body);
+        final shipmentId = shipmentData['id'];
+
+        final paymentResponse = await http.post(
+          Uri.parse('http://10.0.2.2:9090/api/payments'),
+          headers: {'Content-Type': 'application/json'},
+          body: json.encode({
+            'amount': selectedCity!.deliveryCost,
+            'shipmentId': shipmentId,
+            'method': paymentMethod,
+            'status': 'PAID',
+          }),
+        );
+
+        if (paymentResponse.statusCode == 200 ||
+            paymentResponse.statusCode == 201) {
+          _showSuccessSnackbar('تم إنشاء الشحنة والدفع بنجاح!');
+          _formKey.currentState!.reset();
+          setState(() => selectedCity = null);
+        } else {
+          _showErrorSnackbar('تم إنشاء الشحنة ولكن فشل الدفع');
+        }
       } else {
         _showErrorSnackbar('فشل في إنشاء الشحنة: ${response.statusCode}');
       }
@@ -92,89 +111,299 @@ class _CreateShipmentPageState extends State<CreateShipmentPage> {
 
   void _showSuccessSnackbar(String message) {
     ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        content: Text(message, style: TextStyle(color: Colors.white)),
-        backgroundColor: Colors.green,
-        behavior: SnackBarBehavior.floating,
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
-      ),
+      SnackBar(content: Text(message), backgroundColor: Colors.green),
     );
   }
 
   void _showErrorSnackbar(String message) {
     ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        content: Text(message, style: TextStyle(color: Colors.white)),
-        backgroundColor: Colors.redAccent,
-        behavior: SnackBarBehavior.floating,
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
-      ),
+      SnackBar(content: Text(message), backgroundColor: Colors.redAccent),
+    );
+  }
+
+  // ... [ابقاء دوال fetchCities و submitShipment و showErrorSnackbar كما هي] ...
+
+  Future<void> _showPaymentMethodDialog() async {
+    String selectedMethod = 'CASH';
+
+    await showDialog(
+      context: context,
+      builder:
+          (context) => Dialog(
+            shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(20),
+            ),
+            child: Padding(
+              padding: const EdgeInsets.all(20),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Text(
+                    'اختر طريقة الدفع',
+                    style: TextStyle(
+                      fontSize: 20,
+                      fontWeight: FontWeight.bold,
+                      color: Colors.deepPurple,
+                    ),
+                  ),
+                  SizedBox(height: 20),
+                  Container(
+                    decoration: BoxDecoration(
+                      borderRadius: BorderRadius.circular(10),
+                      border: Border.all(color: Colors.grey[300]!),
+                    ),
+                    padding: EdgeInsets.symmetric(horizontal: 12),
+                    child: DropdownButtonFormField<String>(
+                      value: selectedMethod,
+                      items: [
+                        DropdownMenuItem(
+                          value: 'CASH',
+                          child: Row(
+                            children: [
+                              Icon(Icons.money, color: Colors.green),
+                              SizedBox(width: 10),
+                              Text(
+                                'نقداً',
+                                style: TextStyle(color: Colors.black),
+                              ),
+                            ],
+                          ),
+                        ),
+                        DropdownMenuItem(
+                          value: 'CARD',
+                          child: Row(
+                            children: [
+                              Icon(Icons.credit_card, color: Colors.blue),
+                              SizedBox(width: 10),
+                              Text(
+                                'بطاقة',
+                                style: TextStyle(color: Colors.black),
+                              ),
+                            ],
+                          ),
+                        ),
+                      ],
+                      onChanged: (val) => selectedMethod = val!,
+                      decoration: InputDecoration(border: InputBorder.none),
+                      style: TextStyle(fontSize: 16),
+                    ),
+                  ),
+                  SizedBox(height: 30),
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceAround,
+                    children: [
+                      TextButton(
+                        child: Text(
+                          'إلغاء',
+                          style: TextStyle(color: Colors.grey),
+                        ),
+                        onPressed: () => Navigator.of(context).pop(),
+                      ),
+                      ElevatedButton(
+                        style: ElevatedButton.styleFrom(
+                          backgroundColor: Colors.deepPurple,
+                          shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(10),
+                          ),
+                          padding: EdgeInsets.symmetric(
+                            horizontal: 25,
+                            vertical: 12,
+                          ),
+                        ),
+                        child: Text(
+                          'تأكيد',
+                          style: TextStyle(fontSize: 16, color: Colors.white),
+                        ),
+                        onPressed: () {
+                          Navigator.of(context).pop();
+                          submitShipment(selectedMethod);
+                        },
+                      ),
+                    ],
+                  ),
+                ],
+              ),
+            ),
+          ),
     );
   }
 
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      backgroundColor: Colors.grey[50],
       appBar: AppBar(
         title: Text(
           'إنشاء شحنة جديدة',
-          style: TextStyle(fontWeight: FontWeight.bold),
+          style: TextStyle(fontSize: 22, fontWeight: FontWeight.bold),
         ),
         centerTitle: true,
         elevation: 0,
-        backgroundColor: Colors.blue[800],
+        backgroundColor: Colors.deepPurple,
         shape: RoundedRectangleBorder(
           borderRadius: BorderRadius.vertical(bottom: Radius.circular(20)),
         ),
       ),
       body:
           isLoadingCities
-              ? _buildLoadingIndicator()
+              ? Center(
+                child: Column(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: [
+                    CircularProgressIndicator(
+                      valueColor: AlwaysStoppedAnimation<Color>(
+                        Colors.deepPurple,
+                      ),
+                    ),
+                    SizedBox(height: 20),
+                    Text(
+                      'جاري تحميل المدن...',
+                      style: TextStyle(fontSize: 16, color: Colors.grey[600]),
+                    ),
+                  ],
+                ),
+              )
               : SingleChildScrollView(
-                padding: EdgeInsets.all(20),
+                padding: EdgeInsets.all(25),
                 child: Form(
                   key: _formKey,
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.stretch,
                     children: [
-                      _buildHeaderSection(),
+                      Text(
+                        'معلومات الشحنة',
+                        style: TextStyle(
+                          fontSize: 20,
+                          fontWeight: FontWeight.bold,
+                          color: Colors.deepPurple,
+                        ),
+                      ),
+                      SizedBox(height: 5),
+                      Divider(color: Colors.grey[300]),
                       SizedBox(height: 20),
-                      _buildInputField(
-                        controller: descriptionController,
-                        label: 'وصف الشحنة',
-                        icon: Icons.description,
-                        validator: (v) => v!.isEmpty ? 'يرجى إدخال وصف' : null,
+
+                      _buildModernInputField(
+                        descriptionController,
+                        'وصف الشحنة',
+                        Icons.description,
                       ),
-                      SizedBox(height: 15),
-                      _buildInputField(
-                        controller: senderNameController,
-                        label: 'اسم المرسل',
-                        icon: Icons.person_outline,
-                        validator:
-                            (v) => v!.isEmpty ? 'يرجى إدخال اسم المرسل' : null,
+                      SizedBox(height: 20),
+
+                      Text(
+                        'معلومات المرسل',
+                        style: TextStyle(
+                          fontSize: 20,
+                          fontWeight: FontWeight.bold,
+                          color: Colors.deepPurple,
+                        ),
                       ),
-                      SizedBox(height: 15),
-                      _buildInputField(
-                        controller: receiverNameController,
-                        label: 'اسم المستلم',
-                        icon: Icons.person,
-                        validator:
-                            (v) => v!.isEmpty ? 'يرجى إدخال اسم المستلم' : null,
+                      SizedBox(height: 5),
+                      Divider(color: Colors.grey[300]),
+                      SizedBox(height: 20),
+
+                      _buildModernInputField(
+                        senderNameController,
+                        'اسم المرسل',
+                        Icons.person,
                       ),
-                      SizedBox(height: 15),
-                      _buildInputField(
-                        controller: receiverPhoneController,
-                        label: 'هاتف المستلم',
-                        icon: Icons.phone,
+                      SizedBox(height: 20),
+
+                      Text(
+                        'معلومات المستلم',
+                        style: TextStyle(
+                          fontSize: 20,
+                          fontWeight: FontWeight.bold,
+                          color: Colors.deepPurple,
+                        ),
+                      ),
+                      SizedBox(height: 5),
+                      Divider(color: Colors.grey[300]),
+                      SizedBox(height: 20),
+
+                      _buildModernInputField(
+                        receiverNameController,
+                        'اسم المستلم',
+                        Icons.person_outline,
+                      ),
+                      SizedBox(height: 20),
+
+                      _buildModernInputField(
+                        receiverPhoneController,
+                        'هاتف المستلم',
+                        Icons.phone,
                         keyboardType: TextInputType.phone,
-                        validator:
-                            (v) => v!.isEmpty ? 'يرجى إدخال رقم الهاتف' : null,
                       ),
                       SizedBox(height: 20),
-                      _buildCityDropdown(),
+
+                      Text(
+                        'وجهة الشحنة',
+                        style: TextStyle(
+                          fontSize: 20,
+                          fontWeight: FontWeight.bold,
+                          color: Colors.deepPurple,
+                        ),
+                      ),
+                      SizedBox(height: 5),
+                      Divider(color: Colors.grey[300]),
+                      SizedBox(height: 20),
+
+                      _buildModernCityDropdown(),
                       SizedBox(height: 30),
-                      _buildSubmitButton(),
+
+                      if (selectedCity != null)
+                        Container(
+                          padding: EdgeInsets.all(15),
+                          decoration: BoxDecoration(
+                            color: Colors.deepPurple[50],
+                            borderRadius: BorderRadius.circular(10),
+                          ),
+                          child: Row(
+                            children: [
+                              Icon(Icons.info, color: Colors.deepPurple),
+                              SizedBox(width: 10),
+                              Text(
+                                'تكلفة التوصيل: ${selectedCity!.deliveryCost} د.ل',
+                                style: TextStyle(
+                                  fontSize: 16,
+                                  fontWeight: FontWeight.bold,
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                      SizedBox(height: 20),
+
+                      ElevatedButton(
+                        onPressed:
+                            isSubmitting ? null : _showPaymentMethodDialog,
+                        style: ElevatedButton.styleFrom(
+                          backgroundColor: Colors.deepPurple,
+                          shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(15),
+                          ),
+                          padding: EdgeInsets.symmetric(vertical: 16),
+                          elevation: 3,
+                        ),
+                        child:
+                            isSubmitting
+                                ? SizedBox(
+                                  height: 24,
+                                  width: 24,
+                                  child: CircularProgressIndicator(
+                                    strokeWidth: 3,
+                                    valueColor: AlwaysStoppedAnimation<Color>(
+                                      Colors.white,
+                                    ),
+                                  ),
+                                )
+                                : Text(
+                                  'إنشاء الشحنة',
+                                  style: TextStyle(
+                                    fontSize: 18,
+                                    color: Colors.white,
+                                    fontWeight: FontWeight.bold,
+                                  ),
+                                ),
+                      ),
                     ],
                   ),
                 ),
@@ -182,52 +411,10 @@ class _CreateShipmentPageState extends State<CreateShipmentPage> {
     );
   }
 
-  Widget _buildLoadingIndicator() {
-    return Center(
-      child: Column(
-        mainAxisAlignment: MainAxisAlignment.center,
-        children: [
-          CircularProgressIndicator(
-            valueColor: AlwaysStoppedAnimation<Color>(Colors.blue[800]!),
-            strokeWidth: 5,
-          ),
-          SizedBox(height: 20),
-          Text(
-            'جاري تحميل بيانات المدن...',
-            style: TextStyle(fontSize: 16, color: Colors.blue[800]),
-          ),
-        ],
-      ),
-    );
-  }
-
-  Widget _buildHeaderSection() {
-    return Column(
-      children: [
-        Icon(Icons.local_shipping, size: 100, color: Colors.blue[800]),
-        SizedBox(height: 10),
-        Text(
-          'املأ بيانات الشحنة',
-          style: TextStyle(
-            fontSize: 22,
-            fontWeight: FontWeight.bold,
-            color: Colors.blue[900],
-          ),
-        ),
-        SizedBox(height: 5),
-        Text(
-          'سنقوم بتوصيل شحنتك بأمان وسرعة',
-          style: TextStyle(fontSize: 14, color: Colors.grey[600]),
-        ),
-      ],
-    );
-  }
-
-  Widget _buildInputField({
-    required TextEditingController controller,
-    required String label,
-    required IconData icon,
-    required String? Function(String?)? validator,
+  Widget _buildModernInputField(
+    TextEditingController controller,
+    String label,
+    IconData icon, {
     TextInputType keyboardType = TextInputType.text,
   }) {
     return TextFormField(
@@ -235,24 +422,25 @@ class _CreateShipmentPageState extends State<CreateShipmentPage> {
       keyboardType: keyboardType,
       decoration: InputDecoration(
         labelText: label,
-        prefixIcon: Icon(icon, color: Colors.blue[700]),
+        labelStyle: TextStyle(color: Colors.grey[600]),
+        prefixIcon: Icon(icon, color: Colors.deepPurple),
+        filled: true,
+        fillColor: Colors.grey[50],
         border: OutlineInputBorder(
-          borderRadius: BorderRadius.circular(10),
-          borderSide: BorderSide(color: Colors.grey),
+          borderRadius: BorderRadius.circular(12),
+          borderSide: BorderSide.none,
         ),
         focusedBorder: OutlineInputBorder(
-          borderRadius: BorderRadius.circular(10),
-          borderSide: BorderSide(color: Colors.blue, width: 2),
+          borderRadius: BorderRadius.circular(12),
+          borderSide: BorderSide(color: Colors.deepPurple, width: 1.5),
         ),
-        filled: true,
-        fillColor: Colors.white,
-        contentPadding: EdgeInsets.symmetric(vertical: 15, horizontal: 20),
+        contentPadding: EdgeInsets.symmetric(vertical: 16, horizontal: 20),
       ),
-      validator: validator,
+      validator: (v) => v == null || v.isEmpty ? 'هذا الحقل مطلوب' : null,
     );
   }
 
-  Widget _buildCityDropdown() {
+  Widget _buildModernCityDropdown() {
     return DropdownButtonFormField<City>(
       value: selectedCity,
       items:
@@ -260,15 +448,9 @@ class _CreateShipmentPageState extends State<CreateShipmentPage> {
               .map(
                 (city) => DropdownMenuItem(
                   value: city,
-                  child: Row(
-                    children: [
-                      Icon(Icons.location_city, color: Colors.blue[700]),
-                      SizedBox(width: 10),
-                      Text(
-                        '${city.name} (سعر التوصيل: ${city.deliveryCost} د.ل)',
-                        style: TextStyle(fontSize: 14),
-                      ),
-                    ],
+                  child: Text(
+                    '${city.name} - ${city.deliveryCost} د.ل',
+                    style: TextStyle(fontSize: 16, color: Colors.black),
                   ),
                 ),
               )
@@ -276,46 +458,25 @@ class _CreateShipmentPageState extends State<CreateShipmentPage> {
       onChanged: (val) => setState(() => selectedCity = val),
       decoration: InputDecoration(
         labelText: 'اختر المدينة',
-        border: OutlineInputBorder(borderRadius: BorderRadius.circular(10)),
+        labelStyle: TextStyle(color: Colors.grey[600]),
+        prefixIcon: Icon(Icons.location_city, color: Colors.deepPurple),
         filled: true,
-        fillColor: Colors.white,
-        contentPadding: EdgeInsets.symmetric(vertical: 5, horizontal: 20),
+        fillColor: Colors.grey[50],
+        border: OutlineInputBorder(
+          borderRadius: BorderRadius.circular(12),
+          borderSide: BorderSide.none,
+        ),
+        focusedBorder: OutlineInputBorder(
+          borderRadius: BorderRadius.circular(12),
+          borderSide: BorderSide(color: Colors.deepPurple, width: 1.5),
+        ),
+        contentPadding: EdgeInsets.symmetric(vertical: 16, horizontal: 20),
       ),
       validator: (value) => value == null ? 'يرجى اختيار مدينة' : null,
+      style: TextStyle(fontSize: 16),
       dropdownColor: Colors.white,
-      borderRadius: BorderRadius.circular(10),
-      icon: Icon(Icons.arrow_drop_down, color: Colors.blue[700]),
-      isExpanded: true,
-    );
-  }
-
-  Widget _buildSubmitButton() {
-    return ElevatedButton(
-      onPressed: isSubmitting ? null : submitShipment,
-      child: Padding(
-        padding: EdgeInsets.symmetric(vertical: 15),
-        child:
-            isSubmitting
-                ? SizedBox(
-                  height: 20,
-                  width: 20,
-                  child: CircularProgressIndicator(
-                    strokeWidth: 2,
-                    color: Colors.white,
-                  ),
-                )
-                : Text(
-                  'إنشاء الشحنة',
-                  style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
-                ),
-      ),
-      style: ElevatedButton.styleFrom(
-        foregroundColor: Colors.white,
-        backgroundColor: Colors.blue[800],
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
-        elevation: 5,
-        shadowColor: Colors.blue.withOpacity(0.3),
-      ),
+      borderRadius: BorderRadius.circular(12),
+      icon: Icon(Icons.arrow_drop_down, color: Colors.deepPurple),
     );
   }
 }
